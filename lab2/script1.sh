@@ -14,7 +14,7 @@ function toBinary() {
 
 function fromBinary() {
   local variable="$1"
-    
+
   local decimal=""
   for ((i=0; i<32; i+=8)); do
     decimal+=$(echo "obase=10; $((2#"${variable:$i:8}"))" | bc)
@@ -28,7 +28,7 @@ function specialXor() {
   local mask="$2"
   local result=""
   local len=${#ip}
-    
+
   for ((i=0; i<len; i++)); do
     bit1="${ip:$i:1}"
     bit2="${mask:$i:1}"
@@ -38,7 +38,7 @@ function specialXor() {
       result+="0"
     fi
   done
-    
+
   echo "$result"
 }
 
@@ -97,7 +97,7 @@ function or() {
   local mask="$2"
   local len=${#ip}
   local result=""
-  
+
   for ((i=0; i<len; i++)); do
     bit1="${ip:$i:1}"
     bit2="${mask:$i:1}"
@@ -113,11 +113,12 @@ function or() {
 
 function addAddressesToIp() {
   local binaryIp="$1"
-
   local binaryAddresses=$(echo "obase=2; $usedAddresses" | bc)
-    
   local sum=$(echo "$binaryIp + $binaryAddresses" | bc)
-    
+  
+  while [ ${#sum} -lt 32 ]; do
+    sum="0$sum"
+  done
   echo "$sum"
 }
 
@@ -131,7 +132,7 @@ function calculate() {
   binaryXoredIp=$(specialXor "$binaryIp" "$binaryMask")
   decimalMaskForSubNetwork=$(calculateMask "$machines")
   binaryMaskForSubNetwork=$(toBinary "$decimalMaskForSubNetwork")
-  binaryIpForSubNetwork=$(addAddressesToIp $(and "$binaryXoredIp" "$binaryMaskForSubNetwork"))
+  binaryIpForSubNetwork=$(addAddressesToIp "$(and "$binaryXoredIp" "$binaryMaskForSubNetwork")")
   decimalIpForSubNetwork=$(fromBinary "$binaryIpForSubNetwork")
   invertedBinaryMaskForSubNetwork=$(inversion "$binaryMaskForSubNetwork")
   binaryBroadcastIpForSubNetwork=$(or "$binaryIpForSubNetwork" "$invertedBinaryMaskForSubNetwork")
@@ -141,12 +142,16 @@ function calculate() {
   binaryLastHost=$(and "$binaryBroadcastIpForSubNetwork" "11111111111111111111111111111110")
   decimalLastHost=$(fromBinary "$binaryLastHost")
 
-  echo "Сеть: $decimalIpForSubNetwork"
-  echo "Маска: $decimalMaskForSubNetwork"
-  echo "Широковещательный адрес: $decimalBroadcastIpForSubNetwork"
-  echo "Диапазон хостов: $decimalFirstHost - $decimalLastHost"
-  echo "Количество машин: $machines"
-  echo ""
+    echo "Сеть: $decimalIpForSubNetwork"
+    echo "Маска: $decimalMaskForSubNetwork"
+    echo "Широковещательный адрес: $decimalBroadcastIpForSubNetwork"
+    if [[ "$machines" -eq 0 ]]; then
+      echo "Нет доступных IP-адресов, так как все адреса заняты broadcast и самой подсетью."
+    else
+    echo "Диапазон хостов: $decimalFirstHost - $decimalLastHost"
+    fi
+    echo "Количество машин: $machines"
+    echo ""
 
   usedAddresses=$((usedAddresses + $(newUsedAddresses "$machines")))
 }
