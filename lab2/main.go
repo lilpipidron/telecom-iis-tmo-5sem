@@ -210,11 +210,7 @@ func calculate(ip string, mask string, machines int, net int) {
 	fmt.Printf("Сеть: %s\n", decimalIpForSubNetwork)
 	fmt.Printf("Маска: %s\n", decimalMaskForSubNetwork)
 	fmt.Printf("Широковещательный адрес: %s\n", decimalBroadcastIpForSubNetwork)
-	if machines == 0 {
-		fmt.Println("Нет доступных IP-адресов, так как все адреса заняты broadcast и самой подсетью.")
-	} else {
-		fmt.Printf("Диапазон хостов: %s - %s\n", decimalFirstHost, decimalLastHost)
-	}
+	fmt.Printf("Диапазон хостов: %s - %s\n", decimalFirstHost, decimalLastHost)
 	fmt.Printf("Количество машин: %d\n\n", machines)
 
 	usedAddresses += newUsedAddresses(machines, net)
