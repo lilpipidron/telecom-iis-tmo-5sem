@@ -9,7 +9,15 @@ import (
 	"strings"
 )
 
-var usedAddresses int = 1
+var additionalIps = map[int]int{
+	1: 1,
+	2: 2,
+	3: 3,
+	4: 1,
+	5: 1,
+}
+
+var usedAddresses int = 0
 
 type Pair struct {
 	machines int
@@ -48,15 +56,15 @@ func specialXor(ip string, mask string) string {
 	return result
 }
 
-func calculateMask(machines int) string {
-	availableHosts := machines + 2
+func calculateMask(machines int, net int) string {
+	availableHosts := machines + 2 + additionalIps[net]
 	maskBits := 32 - int(math.Ceil(math.Log2(float64(availableHosts))))
 	maskBinary := strings.Repeat("1", maskBits) + strings.Repeat("0", 32-maskBits)
 	return fromBinary(maskBinary)
 }
 
-func newUsedAddresses(machines int) int {
-	availableHosts := machines + 2
+func newUsedAddresses(machines int, net int) int {
+	availableHosts := machines + 2 + additionalIps[net]
 	return int(math.Pow(2, math.Ceil(math.Log2(float64(availableHosts)))))
 }
 
@@ -189,13 +197,13 @@ func subOneFromIp(ip string) string {
 	return fmt.Sprintf("%d.%d.%d.%d", octet1, octet2, octet3, newOctet4)
 }
 
-func calculate(ip string, mask string, machines int) {
+func calculate(ip string, mask string, machines int, net int) {
 	binaryIp := toBinary(ip)
 	binaryMask := toBinary(mask)
 	binaryXoredIp := specialXor(binaryIp, binaryMask)
-	decimalMaskForSubNetwork := calculateMask(machines)
+	decimalMaskForSubNetwork := calculateMask(machines, net)
 	decimalIpForSubNetwork := fromBinary(addAddressesToIp(binaryXoredIp))
-	decimalBroadcastIpForSubNetwork := calculateBroadcast(decimalIpForSubNetwork, newUsedAddresses(machines))
+	decimalBroadcastIpForSubNetwork := calculateBroadcast(decimalIpForSubNetwork, newUsedAddresses(machines, net))
 	decimalFirstHost := addOneToIp(decimalIpForSubNetwork)
 	decimalLastHost := subOneFromIp(decimalBroadcastIpForSubNetwork)
 
@@ -209,7 +217,7 @@ func calculate(ip string, mask string, machines int) {
 	}
 	fmt.Printf("Количество машин: %d\n\n", machines)
 
-	usedAddresses += newUsedAddresses(machines)
+	usedAddresses += newUsedAddresses(machines, net)
 }
 
 func main() {
@@ -231,6 +239,6 @@ func main() {
 
 	for i := range 5 {
 		fmt.Printf("---- Сеть %d ----\n", arr[i].net)
-		calculate(ip, mask, arr[i].machines)
+		calculate(ip, mask, arr[i].machines, arr[i].net)
 	}
 }

@@ -2,170 +2,194 @@
 
 usedAddresses=0
 
-function toBinary() {
-    local variable="$1"
-    local octets=($(echo "$variable" | tr '.' ' '))
+toBinary() {
+    local ip=$1
     local binary=""
+    IFS='.' read -r -a octets <<< "$ip"
     for octet in "${octets[@]}"; do
-        binary+=$(printf '%08s' "$(echo "obase=2; $((octet))" | bc)")
+        printf -v binaryPart "%08d" "$(bc <<< "obase=2; $octet")"
+        binary+="$binaryPart"
     done
-    echo "${binary// /0}"
+    echo "$binary"
 }
 
-function fromBinary() {
-  local variable="$1"
-
-  local decimal=""
-  for ((i=0; i<32; i+=8)); do
-    decimal+=$(echo "obase=10; $((2#"${variable:$i:8}"))" | bc)
-    decimal+="."
-  done
-  echo "${decimal%.*}"
+fromBinary() {
+    local binary=$1
+    local ip=""
+    for (( i=0; i<32; i+=8 )); do
+        part=$(echo "${binary:i:8}" | awk '{ print strtonum("0b"$0) }')
+        ip+="$part."
+    done
+    echo "${ip%?}"  # Удаляем последнюю точку
 }
 
-function specialXor() {
-  local ip="$1"
-  local mask="$2"
-  local result=""
-  local len=${#ip}
+specialXor() {
+    local ip=$1
+    local mask=$2
+    local result=""
+    for (( i=0; i<${#ip}; i++ )); do
+        if [[ "${ip:i:1}" == "1" ]]; then
+            result+="${mask:i:1}"
+        else
+            result+="0"
+        fi
+    done
+    echo "$result"
+}
 
-  for ((i=0; i<len; i++)); do
-    bit1="${ip:$i:1}"
-    bit2="${mask:$i:1}"
-    if [[ "$bit1" = "1" ]]; then
-      result+="$bit2"
-    else
-      result+="0"
+calculateMask() {
+    local machines=$1
+    local availableHosts=$((machines + 2))
+    local maskBits=$((32 - $(echo "l($availableHosts)/l(2)" | bc -l | awk '{print int($1+0.999)}')))
+    local maskBinary=$(printf '1%.0s' $(seq 1 $maskBits) | tr -d '\n')$(printf '0%.0s' $(seq 1 $((32 - maskBits))) | tr -d '\n')
+    fromBinary "$maskBinary"
+}
+
+newUsedAddresses() {
+    local machines=$1
+    local availableHosts=$((machines + 2))
+    echo $((2 ** $(echo "l($availableHosts)/l(2)" | bc -l | awk '{print int($1+0.999)}')))
+}
+
+and() {
+    local ip=$1
+    local mask=$2
+    local result=""
+    for (( i=0; i<${#ip}; i++ )); do
+        if [[ "${ip:i:1}" == "${mask:i:1}" ]]; then
+            result+="${ip:i:1}"
+        else
+            result+="0"
+        fi
+    done
+    echo "$result"
+}
+
+calculateBroadcast() {
+    local ip=$1
+    local addresses=$2
+    IFS='.' read -r octet1 octet2 octet3 octet4 <<< "$ip"
+    local newOctet4=$((octet4 + addresses - 1))
+
+    while (( newOctet4 > 255 )); do
+        newOctet4=$((newOctet4 - 256))
+        ((octet3++))
+        if (( octet3 > 255 )); then
+            octet3=0
+            ((octet2++))
+            if (( octet2 > 255 )); then
+                octet2=0
+                ((octet1++))
+            fi
+        fi
+    done
+
+    echo "$octet1.$octet2.$octet3.$newOctet4"
+}
+
+addAddressesToIp() {
+    local binaryIp=$1
+    local ip=$(fromBinary "$binaryIp")
+    IFS='.' read -r octet1 octet2 octet3 octet4 <<< "$ip"
+    local newOctet4=$((octet4 + usedAddresses))
+
+    while (( newOctet4 > 255 )); do
+        newOctet4=$((newOctet4 - 256))
+        ((octet3++))
+        if (( octet3 > 255 )); then
+            octet3=0
+            ((octet2++))
+            if (( octet2 > 255 )); then
+                octet2=0
+                ((octet1++))
+            fi
+        fi
+    done
+
+    echo "$octet1.$octet2.$octet3.$newOctet4"
+}
+
+addOneToIp() {
+    local ip=$1
+    IFS='.' read -r octet1 octet2 octet3 octet4 <<< "$ip"
+    local newOctet4=$((octet4 + 1))
+    if (( newOctet4 > 255 )); then
+        newOctet4=0
+        ((octet3++))
+        if (( octet3 > 255 )); then
+            octet3=0
+            ((octet2++))
+            if (( octet2 > 255 )); then
+                octet2=0
+                ((octet1++))
+            fi
+        fi
     fi
-  done
-
-  echo "$result"
+    echo "$octet1.$octet2.$octet3.$newOctet4"
 }
 
-function calculateMask() {
-  local machines="$1"
-  local available_hosts=$((machines + 2))
-  local mask_bits=$((32 - $(echo "(l($available_hosts) / l(2))" | bc -l | awk '{printf "%d\n", $1+0.9999}')))
-  local maskBinary=$(printf '%*s' "$mask_bits" '' | tr ' ' '1')$(printf '%*s' "$((32 - mask_bits))" '' | tr ' ' '0')
-  local maskDecimal=$(fromBinary "$maskBinary")
-  echo "$maskDecimal"
-}
-
-function newUsedAddresses() {
-    local machines="$1"
-    local available_hosts=$((machines + 2))
-    echo $((2 ** $(echo "(l($available_hosts) / l(2))" | bc -l | awk '{printf "%d\n", $1+0.9999}')))
-}
-
-function and() {
-  local ip="$1"
-  local mask="$2"
-  local len=${#ip}
-  local result=""
-
-  for ((i=0; i<len; i++)); do
-    bit1="${ip:$i:1}"
-    bit2="${mask:$i:1}"
-    if [[ "$bit1" = "$bit2" ]]; then
-      result+="$bit1"
-    else
-      result+="0"
+subOneFromIp() {
+    local ip=$1
+    IFS='.' read -r octet1 octet2 octet3 octet4 <<< "$ip"
+    local newOctet4=$((octet4 - 1))
+    if (( newOctet4 < 0 )); then
+        newOctet4=255
+        ((octet3--))
+        if (( octet3 < 0 )); then
+            octet3=255
+            ((octet2--))
+            if (( octet2 < 0 )); then
+                octet2=255
+                ((octet1--))
+                if (( octet1 < 0 )); then
+                    echo "Ошибка: переполнение адреса IP"
+                    return
+                fi
+            fi
+        fi
     fi
-  done
-
-  echo "$result"
+    echo "$octet1.$octet2.$octet3.$newOctet4"
 }
 
-function inversion() {
-  local variable="$1"
-  local len=${#variable}
-  local result=""
-
-  for ((i=0; i<len; i++)); do
-    if [[ "${variable:$i:1}" = "1" ]]; then
-      result+="0"
-    else
-      result+="1"
-    fi
-  done
-
-  echo "$result"
-}
-
-function or() {
-  local ip="$1"
-  local mask="$2"
-  local len=${#ip}
-  local result=""
-
-  for ((i=0; i<len; i++)); do
-    bit1="${ip:$i:1}"
-    bit2="${mask:$i:1}"
-    if [[ "$bit1" = "1" || "$bit2" = "1" ]]; then
-      result+="1"
-    else
-      result+="0"
-    fi
-  done
-
-  echo "$result"
-}
-
-function addAddressesToIp() {
-  local binaryIp="$1"
-  local binaryAddresses=$(echo "obase=2; $usedAddresses" | bc)
-  local sum=$(echo "$binaryIp + $binaryAddresses" | bc)
-  
-  while [ ${#sum} -lt 32 ]; do
-    sum="0$sum"
-  done
-  echo "$sum"
-}
-
-function calculate() {
-  local ip="$1"
-  local mask="$2"
-  local machines="$3"
-
-  binaryIp=$(toBinary "$ip")
-  binaryMask=$(toBinary "$mask")
-  binaryXoredIp=$(specialXor "$binaryIp" "$binaryMask")
-  decimalMaskForSubNetwork=$(calculateMask "$machines")
-  binaryMaskForSubNetwork=$(toBinary "$decimalMaskForSubNetwork")
-  binaryIpForSubNetwork=$(addAddressesToIp "$(and "$binaryXoredIp" "$binaryMaskForSubNetwork")")
-  decimalIpForSubNetwork=$(fromBinary "$binaryIpForSubNetwork")
-  invertedBinaryMaskForSubNetwork=$(inversion "$binaryMaskForSubNetwork")
-  binaryBroadcastIpForSubNetwork=$(or "$binaryIpForSubNetwork" "$invertedBinaryMaskForSubNetwork")
-  decimalBroadcastIpForSubNetwork=$(fromBinary "$binaryBroadcastIpForSubNetwork")
-  binaryFirstHost=$(or "$binaryIpForSubNetwork" "00000000000000000000000000000001")
-  decimalFirstHost=$(fromBinary "$binaryFirstHost")
-  binaryLastHost=$(and "$binaryBroadcastIpForSubNetwork" "11111111111111111111111111111110")
-  decimalLastHost=$(fromBinary "$binaryLastHost")
+calculate() {
+    local ip=$1
+    local mask=$2
+    local machines=$3
+    local binaryIp=$(toBinary "$ip")
+    local binaryMask=$(toBinary "$mask")
+    local binaryXoredIp=$(specialXor "$binaryIp" "$binaryMask")
+    local decimalMaskForSubNetwork=$(calculateMask "$machines")
+    local decimalIpForSubNetwork=$(fromBinary "$(addAddressesToIp "$binaryXoredIp")")
+    local decimalBroadcastIpForSubNetwork=$(calculateBroadcast "$decimalIpForSubNetwork" "$(newUsedAddresses "$machines")")
+    local decimalFirstHost=$(addOneToIp "$decimalIpForSubNetwork")
+    local decimalLastHost=$(subOneFromIp "$decimalBroadcastIpForSubNetwork")
 
     echo "Сеть: $decimalIpForSubNetwork"
     echo "Маска: $decimalMaskForSubNetwork"
     echo "Широковещательный адрес: $decimalBroadcastIpForSubNetwork"
-    if [[ "$machines" -eq 0 ]]; then
-      echo "Нет доступных IP-адресов, так как все адреса заняты broadcast и самой подсетью."
+    if (( machines == 0 )); then
+        echo "Нет доступных IP-адресов, так как все адреса заняты broadcast и самой подсетью."
     else
-    echo "Диапазон хостов: $decimalFirstHost - $decimalLastHost"
+        echo "Диапазон хостов: $decimalFirstHost - $decimalLastHost"
     fi
     echo "Количество машин: $machines"
     echo ""
 
-  usedAddresses=$((usedAddresses + $(newUsedAddresses "$machines")))
+    usedAddresses=$((usedAddresses + $(newUsedAddresses "$machines")))
 }
 
 if [[ $# -ne 7 ]]; then
-  echo "Использование: $0 <IP> <маска> <машины_сеть1> <машины_сеть2> <машины_сеть3> <машины_сеть4> <машины_сеть5>"
-  exit 1
+  echo "Использование: <IP> <маска> <машины_сеть1> <машины_сеть2> <машины_сеть3> <машины_сеть4> <машины_сеть5>"
+  return
 fi
 
 ip=$1
 mask=$2
 shift 2
-for i in {1..5}; do
-  echo "---- Сеть $i ----"
+
+for (( i=0; i<5; i++ )); do
+  echo "---- Сеть $((i+1)) ----"
   calculate "$ip" "$mask" "$1"
   shift
 done
+
